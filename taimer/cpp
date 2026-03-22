@@ -1,0 +1,118 @@
+#include <TM1637Display.h>
+
+// Пины подключения TM1637
+#define CLK 2
+#define DIO 3
+
+// Пины кнопок
+#define BUTTON_MIN 4
+#define BUTTON_SEC 5
+
+// Пин звукового сигнала
+#define BUZZER 6
+
+// Создаём объект дисплея
+TM1637Display display(CLK, DIO);
+
+// Переменные времени
+int minutes = 0;
+int seconds = 0;
+bool timerRunning = false;
+unsigned long lastButtonPress = 0;
+const unsigned long startDelay = 5000; // 5 секунд бездействия до старта
+unsigned long lastTick = 0;
+
+// Функция обновления индикатора
+void updateDisplay() {
+  // Формируем число в формате MMSS (минуты и секунды)
+  int timeValue = minutes * 100 + seconds;
+  display.showNumberDecEx(timeValue, 0b01000000, true); // 0b01000000 включает двоеточие
+}
+
+void setup() {
+  // Настройка пинов
+  pinMode(BUTTON_MIN, INPUT_PULLUP);
+  pinMode(BUTTON_SEC, INPUT_PULLUP);
+  pinMode(BUZZER, OUTPUT);
+
+  // Инициализация дисплея
+  display.setBrightness(7); // яркость 0..7
+  updateDisplay();
+}
+
+void loop() {
+  // --- Управление кнопками (только если таймер не запущен) ---
+  if (!timerRunning) {
+    if (digitalRead(BUTTON_MIN) == LOW) {
+      minutes++;
+      if (minutes > 99) minutes = 0;
+      updateDisplay();
+      lastButtonPress = millis();
+      delay(200); // антидребезг
+    }
+    if (digitalRead(BUTTON_SEC) == LOW) {
+      seconds++;
+      if (seconds > 59) seconds = 0;
+      updateDisplay();
+      lastButtonPress = millis();
+      delay(200);
+    }
+
+    // Если прошло 5 секунд без нажатий, запускаем таймер
+    if (millis() - lastButtonPress > startDelay && (minutes > 0 || seconds > 0)) {
+      timerRunning = true;
+      lastTick = millis();
+    }
+  }
+
+  // --- Обратный отсчёт ---
+  if (timerRunning) {
+    // Каждую секунду уменьшаем время
+    if (millis() - lastTick >= 1000) {
+      lastTick = millis();
+      if (seconds == 0) {
+        if (minutes > 0) {
+          minutes--;
+          seconds = 59;
+        } else {
+          // Таймер закончился
+          timerRunning = false;
+          // Звуковой сигнал
+          tone(BUZZER, 1000, 500);
+          delay(500);
+          noTone(BUZZER);
+          // Мигание нулями
+          for (int i = 0; i < 5; i++) {
+            display.showNumberDecEx(0, 0b01000000, true);
+            delay(300);
+            display.clear();
+            delay(300);
+          }
+          // Сброс времени (можно оставить 0:00)
+          minutes = 0;
+          seconds = 0;
+          updateDisplay();
+          continue;
+        }
+      } else {
+        seconds--;
+      }
+      updateDisplay();
+    }
+  }
+
+  // Визуальное мигание двоеточия во время работы таймера
+  if (timerRunning) {
+    static unsigned long lastBlink = 0;
+    static bool colonState = true;
+    if (millis() - lastBlink > 500) {
+      lastBlink = millis();
+      colonState = !colonState;
+      int timeValue = minutes * 100 + seconds;
+      if (colonState)
+        display.showNumberDecEx(timeValue, 0b01000000, true); // двоеточие горит
+      else
+        display.showNumberDecEx(timeValue, 0b00000000, true); // двоеточие выключено
+    }
+  }
+}
